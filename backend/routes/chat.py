@@ -2,7 +2,7 @@ from fastapi import APIRouter
 from backend.models.schemas import ChatRequest
 from backend.utils.prompt_builder import build_prompt
 from backend.services.ollama_service import generate
-from backend.core.memory import save_message, clear
+from backend.services.memory_service import save_message, clear_session
 
 router = APIRouter()
 
