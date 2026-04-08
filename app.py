@@ -5,7 +5,10 @@ from pydantic import BaseModel
 import requests
 import os
 import subprocess
+from backend.db.database import Base, engine
+import backend.models  # MUITO IMPORTANTE
 
+Base.metadata.create_all(bind=engine)
 app = FastAPI()
 
 OLLAMA_URL = os.getenv("OLLAMA_URL", "http://localhost:11434")
@@ -26,12 +29,8 @@ def build_prompt(session_id, user_message):
     history = conversations.get(session_id, [])
 
     prompt = (
-        "Você é um assistente técnico.\n"
         "Responda sempre em português do Brasil.\n"
-        "Seja direto e objetivo.\n"
-        "NÃO invente contexto.\n"
-        "NÃO continue a conversa após responder.\n"
-        "Responda apenas o necessário.\n\n"
+
     )
 
     for msg in history[-30:]:
@@ -55,7 +54,7 @@ def chat(req: ChatRequest):
     payload = {
         "model": req.model,
         "prompt": prompt,
-        "stream": False,
+        "stream": True,
         "options": {
             "num_predict": 100,   # limita tamanho
             "temperature": 0.2    # menos criatividade

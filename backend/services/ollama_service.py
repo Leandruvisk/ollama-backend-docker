@@ -3,22 +3,31 @@ from backend.config import settings
 
 
 def generate(prompt: str, model: str):
+    model = model or "llama3:latest"
+
+    # 🔥 normaliza
+    if model == "llama3":
+        model = "llama3:latest"
+
     payload = {
-        "model": model or settings.DEFAULT_MODEL,
+        "model": model,
         "prompt": prompt,
-        "stream": False,
+        "stream": True,
         "options": {
             "num_predict": settings.NUM_PREDICT,
             "temperature": settings.TEMPERATURE
         }
     }
 
+
     response = requests.post(
-        f"{settings.OLLAMA_URL}/api/generate",
+        "http://ollama:11434/api/generate",
         json=payload,
         timeout=60
     )
 
     data = response.json()
+
+    print("DEBUG:", data)
 
     return data.get("response")
