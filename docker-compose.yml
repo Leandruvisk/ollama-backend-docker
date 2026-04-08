@@ -32,7 +32,7 @@ services:
   backend:
     build:
       context: .
-      dockerfile: docker/Dockerfile
+      dockerfile: backend/Dockerfile
     container_name: backend
     ports:
       - "8000:8000"
@@ -44,6 +44,19 @@ services:
       OLLAMA_URL: http://ollama:11434
     volumes:
       - .:/app
+
+  frontend:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+    container_name: frontend
+    ports:
+      - "8501:8501"
+    depends_on:
+      - backend
+    volumes:
+      - .:/app
+
 
 volumes:
   ollama_data:

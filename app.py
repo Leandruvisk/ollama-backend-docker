@@ -1,88 +1,149 @@
 # app.py
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 import requests
 import os
-import subprocess
-from backend.db.database import Base, engine
-import backend.models  # MUITO IMPORTANTE
 
+from backend.db.database import Base, engine, SessionLocal
+from backend.db.models import Conversation
+from fastapi.responses import StreamingResponse
+import json
+
+# cria tabelas
 Base.metadata.create_all(bind=engine)
+
 app = FastAPI()
 
-OLLAMA_URL = os.getenv("OLLAMA_URL", "http://localhost:11434")
+# IMPORTANTE: dentro do docker é o nome do serviço
+OLLAMA_URL = os.getenv("OLLAMA_URL", "http://ollama:11434")
 
 
+# =========================
+# SCHEMA
+# =========================
 class ChatRequest(BaseModel):
     message: str
     model: str = "llama3"
     session_id: str
 
 
-# memória
-conversations = {}
+# =========================
+# DATABASE HELPERS
+# =========================
+def get_db():
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
 
 
-# monta contexto
-def build_prompt(session_id, user_message):
-    history = conversations.get(session_id, [])
-
-    prompt = (
-        "Responda sempre em português do Brasil.\n"
-
+def get_history(db, session_id: str):
+    return (
+        db.query(Conversation)
+        .filter(Conversation.session_id == session_id)
+        .order_by(Conversation.id)
+        .all()
     )
 
-    for msg in history[-30:]:
-        prompt += f"<user>{msg['user']}</user>\n"
-        prompt += f"<assistant>{msg['bot']}</assistant>\n"
+
+def save_message(db, session_id: str, user_msg: str, bot_msg: str):
+    conv = Conversation(
+        session_id=session_id,
+        user_message=user_msg,
+        bot_response=bot_msg
+    )
+    db.add(conv)
+    db.commit()
+
+
+def clear_history(db, session_id: str):
+    db.query(Conversation)\
+      .filter(Conversation.session_id == session_id)\
+      .delete()
+    db.commit()
+
+
+# =========================
+# PROMPT BUILDER
+# =========================
+def build_prompt(history, user_message):
+    prompt = "Responda sempre em português do Brasil.\n"
+
+    for msg in history[-20:]:
+        prompt += f"<user>{msg.user_message}</user>\n"
+        prompt += f"<assistant>{msg.bot_response}</assistant>\n"
 
     prompt += f"<user>{user_message}</user>\n<assistant>"
 
     return prompt
 
 
-# endpoint principal
+# =========================
+# ENDPOINTS
+# =========================
+
+
 @app.post("/chat")
 def chat(req: ChatRequest):
 
-    print("Recebido:", req)
+    def generate():
+        db = SessionLocal()
 
-    prompt = build_prompt(req.session_id, req.message)
-    print("Prompt:", prompt)
+        try:
+            history = get_history(db, req.session_id)
+            prompt = build_prompt(history, req.message)
 
-    payload = {
-        "model": req.model,
-        "prompt": prompt,
-        "stream": True,
-        "options": {
-            "num_predict": 100,   # limita tamanho
-            "temperature": 0.2    # menos criatividade
-        }
-    }
+            payload = {
+                "model": req.model,
+                "prompt": prompt,
+                "stream": True,
+                "options": {
+                    "num_predict": 200,
+                    "temperature": 0.2
+                }
+            }
 
-    response = requests.post(
-        f"{OLLAMA_URL}/api/generate",
-        json=payload,
-        timeout=60
-    )
+            with requests.post(
+                f"{OLLAMA_URL}/api/generate",
+                json=payload,
+                stream=True,
+                timeout=120
+            ) as r:
 
-    data = response.json()
-    print("Resposta completa:", data)
+                full_response = ""
 
-    answer = data.get("response")
+                for line in r.iter_lines():
+                    if line:
+                        data = json.loads(line.decode("utf-8"))
 
-    # salva histórico
-    conversations.setdefault(req.session_id, []).append({
-        "user": req.message,
-        "bot": answer
-    })
+                        token = data.get("response", "")
+                        full_response += token
 
-    return {"response": answer}
+                        # envia token pro cliente
+                        yield token
 
+                        if data.get("done", False):
+                            break
 
-# limpar memória
+                # salva no banco só no final
+                save_message(db, req.session_id, req.message, full_response)
+
+        except Exception as e:
+            yield f"\n[ERRO]: {str(e)}"
+
+        finally:
+            db.close()
+
+    return StreamingResponse(generate(), media_type="text/plain")
+
 @app.delete("/chat/{session_id}")
 def clear_session(session_id: str):
-    conversations.pop(session_id, None)
-    return {"status": "cleared"}
+    db = SessionLocal()
+
+    try:
+        clear_history(db, session_id)
+        return {"status": "cleared"}
+    finally:
+        db.close()
