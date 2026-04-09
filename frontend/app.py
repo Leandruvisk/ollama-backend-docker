@@ -1,11 +1,12 @@
+import os
 import streamlit as st
 import requests
 
-BACKEND_URL = st.secrets.get("backend_url", "http://backend:8000")
+BACKEND_URL = os.environ.get("BACKEND_URL", "http://backend:8000")
 
 # Inicializa sessão de chat
 if "session_id" not in st.session_state:
-    st.session_state.session_id = st.session_state.get("session_id", str(st.experimental_get_query_params().get("sid", ["default"])[0]))
+    st.session_state.session_id = st.query_params.get("sid", "default")
 if "history" not in st.session_state:
     st.session_state.history = []
 

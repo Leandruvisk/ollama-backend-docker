@@ -22,12 +22,6 @@ services:
       - "11434:11434"
     volumes:
       - ollama_data:/root/.ollama
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - capabilities: [gpu]
-    runtime: nvidia
 
   backend:
     build:
@@ -54,6 +48,8 @@ services:
       - "8501:8501"
     depends_on:
       - backend
+    environment:
+      BACKEND_URL: http://backend:8000
     volumes:
       - .:/app
 
