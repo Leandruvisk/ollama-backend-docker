@@ -19,6 +19,6 @@ def chat(req: ChatRequest):
 
 
 @router.delete("/chat/{session_id}")
-def clear_session(session_id: str):
-    clear(session_id)
+def delete_session(session_id: str):
+    clear_session(session_id)
     return {"status": "cleared"}
